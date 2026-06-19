@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Robot Reporter - Parse Robot Framework output.xml and post results to GitHub."""
+"""Robot Reporter - Parse Robot Framework output.xml and post results to GitHub step summary."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Optional
 
-import requests
 from jinja2 import Environment, FileSystemLoader
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -45,28 +44,8 @@ class Report:
 
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Parse Robot Framework output.xml and post results to GitHub.",
-    )
-    parser.add_argument(
-        "--access_token",
-        default=os.environ.get("GH_ACCESS_TOKEN", ""),
-        help="GitHub Access Token (default: $GH_ACCESS_TOKEN)",
-    )
-    parser.add_argument(
-        "--repo_owner",
-        default=os.environ.get("REPO_OWNER", ""),
-        help="Repository owner (default: $REPO_OWNER)",
-    )
-    parser.add_argument(
-        "--sha",
-        dest="commit_sha",
-        default=os.environ.get("COMMIT_SHA", ""),
-        help="Commit SHA (default: $COMMIT_SHA)",
-    )
-    parser.add_argument(
-        "--repository",
-        default=os.environ.get("REPOSITORY", ""),
-        help="Repository name (default: $REPOSITORY)",
+        description="Parse Robot Framework output.xml and write report to "
+        "GitHub Actions step summary.",
     )
     parser.add_argument(
         "--report_path",
@@ -74,19 +53,9 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         help="Directory containing output.xml (default: $REPORT_PATH)",
     )
     parser.add_argument(
-        "--pull_request_id",
-        default=os.environ.get("PR_ID", ""),
-        help="Pull request number (default: $PR_ID)",
-    )
-    parser.add_argument(
         "--summary",
         default=os.environ.get("SUMMARY", ""),
         help="Write report to GitHub step summary if true (default: $SUMMARY)",
-    )
-    parser.add_argument(
-        "--only_summary",
-        default=os.environ.get("ONLY_SUMMARY", ""),
-        help="Only write to step summary, skip PR/commit comment (default: $ONLY_SUMMARY)",
     )
     parser.add_argument(
         "--show_passed_tests",
@@ -102,28 +71,6 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
 
 
 def validate_args(args: argparse.Namespace) -> None:
-    if args.only_summary == "true" and args.summary != "true":
-        args.summary = "true"
-
-    if args.only_summary != "true":
-        if not args.access_token:
-            sys.exit(
-                "Token missing. Please define GH_ACCESS_TOKEN environment variable."
-            )
-        if not args.repo_owner:
-            sys.exit(
-                "Owner missing. Please define REPO_OWNER environment variable."
-            )
-        if not args.commit_sha and not args.pull_request_id:
-            sys.exit(
-                "Either SHA or PR ID needs to be defined. "
-                "Please define COMMIT_SHA or PR_ID environment variable."
-            )
-        if not args.repository:
-            sys.exit(
-                "Repository missing. Please define REPOSITORY environment variable."
-            )
-
     if not args.report_path:
         sys.exit(
             "Report path missing. Please define REPORT_PATH environment variable."
@@ -159,7 +106,9 @@ def parse_output_xml(report_path: str) -> Report:
             try:
                 execution_time = float(elapsed)
             except (ValueError, TypeError):
-                log.warning("Invalid elapsed time '%s' for test '%s'", elapsed, name)
+                log.warning(
+                    "Invalid elapsed time '%s' for test '%s'", elapsed, name
+                )
                 execution_time = 0.0
 
             total_duration += execution_time
@@ -236,84 +185,7 @@ def render_report(report: Report, args: argparse.Namespace) -> str:
         failed_tests=report.failed_tests,
         show_passed_tests=args.show_passed_tests == "true",
         failed_tests_on_top=args.failed_tests_on_top == "true",
-        failed_tests_count=len(report.failed_tests),
-        passed_tests_count=len(report.passed_tests),
     )
-
-
-def get_api_base() -> str:
-    return os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
-
-
-def post_report(token: str, args: argparse.Namespace, body: str) -> None:
-    if args.only_summary == "true":
-        return
-
-    api_base = get_api_base()
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "robot-reporter",
-    }
-
-    if args.pull_request_id:
-        post_to_pr(api_base, headers, args, body)
-    else:
-        post_to_commit(api_base, headers, args, body)
-
-
-def post_to_pr(
-    api_base: str,
-    headers: dict[str, str],
-    args: argparse.Namespace,
-    body: str,
-) -> None:
-    pr_id = int(args.pull_request_id)
-    comments_url = (
-        f"{api_base}/repos/{args.repo_owner}/{args.repository}"
-        f"/issues/{pr_id}/comments"
-    )
-
-    resp = requests.get(comments_url, headers=headers, timeout=30)
-    resp.raise_for_status()
-    comments = resp.json()
-
-    for comment in comments:
-        if comment.get("body", "").strip().startswith("### Robot Results"):
-            comment_id = comment["id"]
-            update_url = (
-                f"{api_base}/repos/{args.repo_owner}/{args.repository}"
-                f"/issues/comments/{comment_id}"
-            )
-            resp = requests.patch(
-                update_url, headers=headers, json={"body": body}, timeout=30
-            )
-            resp.raise_for_status()
-            log.info("Updated existing PR comment %d on #%d", comment_id, pr_id)
-            return
-
-    resp = requests.post(
-        comments_url, headers=headers, json={"body": body}, timeout=30
-    )
-    resp.raise_for_status()
-    log.info("Created new PR comment on #%d", pr_id)
-
-
-def post_to_commit(
-    api_base: str,
-    headers: dict[str, str],
-    args: argparse.Namespace,
-    body: str,
-) -> None:
-    commit_url = (
-        f"{api_base}/repos/{args.repo_owner}/{args.repository}"
-        f"/commits/{args.commit_sha}/comments"
-    )
-    resp = requests.post(
-        commit_url, headers=headers, json={"body": body}, timeout=30
-    )
-    resp.raise_for_status()
-    log.info("Created commit comment on %s", args.commit_sha)
 
 
 def write_summary(body: str, args: argparse.Namespace) -> None:
@@ -339,7 +211,11 @@ def main(argv: Optional[list[str]] = None) -> None:
     report = parse_output_xml(args.report_path)
     body = render_report(report, args)
 
-    post_report(args.access_token, args, body)
+    if output := os.environ.get("GITHUB_OUTPUT"):
+        log.info("Writing report_body to GITHUB_OUTPUT")
+        with open(output, "a", encoding="utf-8") as f:
+            f.write(f"report_body<<EOF\n{body}\nEOF\n")
+
     write_summary(body, args)
 
 
