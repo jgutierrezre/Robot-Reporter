@@ -102,7 +102,6 @@ def parse_output_xml(report_path: str) -> Report:
 
     passed_tests: list[Test] = []
     failed_tests: list[Test] = []
-    total_duration = 0.0
 
     for suite_elem in root.iter("suite"):
         suite_name = suite_elem.get("name", "Unknown Suite")
@@ -126,8 +125,6 @@ def parse_output_xml(report_path: str) -> Report:
                 )
                 execution_time = 0.0
 
-            total_duration += execution_time
-
             test = Test(
                 name=name,
                 status=status,
@@ -140,6 +137,11 @@ def parse_output_xml(report_path: str) -> Report:
                 passed_tests.append(test)
             elif status == "FAIL":
                 failed_tests.append(test)
+
+    suite_status = root.find("suite/status")
+    if suite_status is None:
+        sys.exit("Could not find suite status in output.xml")
+    total_elapsed = float(suite_status.get("elapsed", "0"))
 
     stat_elem = root.find(".//statistics/total/stat")
     if stat_elem is None:
@@ -155,7 +157,7 @@ def parse_output_xml(report_path: str) -> Report:
         skipped=skipped,
         total=passed + failed,
         pass_percentage=pass_percentage(passed, failed),
-        total_duration=format_duration(total_duration),
+        total_duration=format_duration(total_elapsed),
         passed_tests=passed_tests,
         failed_tests=failed_tests,
     )
