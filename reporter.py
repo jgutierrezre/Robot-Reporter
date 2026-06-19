@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 """Robot Reporter - Parse Robot Framework output.xml and post results to GitHub step summary."""
 
-from __future__ import annotations
-
 import argparse
 import logging
 import os
 import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import cast
 
 from jinja2 import Environment, FileSystemLoader
 
@@ -50,37 +48,40 @@ class Report:
     failed_tests_on_top: bool = False
 
 
-def parse_args(argv: Optional[list[str]] = None) -> Args:
-    parser = argparse.ArgumentParser(
-        description="Parse Robot Framework output.xml and write report to "
-        "GitHub Actions step summary.",
-    )
-    parser.add_argument(
+DESCRIPTION = (
+    "Parse Robot Framework output.xml and write report to "
+    "GitHub Actions step summary."
+)
+
+
+def parse_args(argv: list[str] | None = None) -> Args:
+    parser = argparse.ArgumentParser(description=DESCRIPTION)
+    _ = parser.add_argument(
         "--report_path",
         default=os.environ.get("REPORT_PATH", ""),
         help="Directory containing output.xml (default: $REPORT_PATH)",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--summary",
         default=os.environ.get("SUMMARY", ""),
         help="Write report to GitHub step summary if true (default: $SUMMARY)",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--show_passed_tests",
         default=os.environ.get("SHOW_PASSED_TESTS", ""),
         help="Include passed tests in report if true (default: $SHOW_PASSED_TESTS)",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--failed_tests_on_top",
         default=os.environ.get("FAILED_TESTS_ON_TOP", ""),
         help="Show failed tests before passed tests if true (default: $FAILED_TESTS_ON_TOP)",
     )
     raw = parser.parse_args(argv)
     return Args(
-        report_path=raw.report_path,
-        summary=raw.summary,
-        show_passed_tests=raw.show_passed_tests,
-        failed_tests_on_top=raw.failed_tests_on_top,
+        report_path=cast(str, raw.report_path),
+        summary=cast(str, raw.summary),
+        show_passed_tests=cast(str, raw.show_passed_tests),
+        failed_tests_on_top=cast(str, raw.failed_tests_on_top),
     )
 
 
@@ -127,7 +128,7 @@ def parse_output_xml(report_path: str) -> Report:
 
             total_duration += execution_time
 
-            test: Test = Test(
+            test = Test(
                 name=name,
                 status=status,
                 suite=suite_name,
@@ -213,10 +214,10 @@ def write_summary(body: str, args: Args) -> None:
 
     log.info("Writing report to GITHUB_STEP_SUMMARY")
     with open(summary_path, "a", encoding="utf-8") as f:
-        f.write(body)
+        _ = f.write(body)
 
 
-def main(argv: Optional[list[str]] = None) -> None:
+def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     args = parse_args(argv)
@@ -228,7 +229,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     if output := os.environ.get("GITHUB_OUTPUT"):
         log.info("Writing report_body to GITHUB_OUTPUT")
         with open(output, "a", encoding="utf-8") as f:
-            f.write(f"report_body<<EOF\n{body}\nEOF\n")
+            _ = f.write(f"report_body<<EOF\n{body}\nEOF\n")
 
     write_summary(body, args)
 
