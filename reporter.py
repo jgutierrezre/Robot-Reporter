@@ -9,6 +9,7 @@ import os
 import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
+from typing import Optional
 
 from jinja2 import Environment, FileSystemLoader
 
@@ -16,6 +17,14 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(SCRIPT_DIR, "templates")
 
 log = logging.getLogger(__name__)
+
+
+@dataclass
+class Args:
+    report_path: str
+    summary: str
+    show_passed_tests: str
+    failed_tests_on_top: str
 
 
 @dataclass
@@ -41,15 +50,7 @@ class Report:
     failed_tests_on_top: bool = False
 
 
-@dataclass
-class CliArgs:
-    report_path: str
-    summary: str
-    show_passed_tests: str
-    failed_tests_on_top: str
-
-
-def parse_args(argv: list[str] | None = None) -> CliArgs:
+def parse_args(argv: Optional[list[str]] = None) -> Args:
     parser = argparse.ArgumentParser(
         description="Parse Robot Framework output.xml and write report to "
         "GitHub Actions step summary.",
@@ -74,18 +75,20 @@ def parse_args(argv: list[str] | None = None) -> CliArgs:
         default=os.environ.get("FAILED_TESTS_ON_TOP", ""),
         help="Show failed tests before passed tests if true (default: $FAILED_TESTS_ON_TOP)",
     )
-    ns = parser.parse_args(argv)
-    return CliArgs(
-        report_path=ns.report_path,
-        summary=ns.summary,
-        show_passed_tests=ns.show_passed_tests,
-        failed_tests_on_top=ns.failed_tests_on_top,
+    raw = parser.parse_args(argv)
+    return Args(
+        report_path=raw.report_path,
+        summary=raw.summary,
+        show_passed_tests=raw.show_passed_tests,
+        failed_tests_on_top=raw.failed_tests_on_top,
     )
 
 
-def validate_args(args: CliArgs) -> None:
+def validate_args(args: Args) -> None:
     if not args.report_path:
-        sys.exit("Report path missing. Please define REPORT_PATH environment variable.")
+        sys.exit(
+            "Report path missing. Please define REPORT_PATH environment variable."
+        )
 
 
 def parse_output_xml(report_path: str) -> Report:
@@ -117,7 +120,9 @@ def parse_output_xml(report_path: str) -> Report:
             try:
                 execution_time = float(elapsed)
             except (ValueError, TypeError):
-                log.warning("Invalid elapsed time '%s' for test '%s'", elapsed, name)
+                log.warning(
+                    "Invalid elapsed time '%s' for test '%s'", elapsed, name
+                )
                 execution_time = 0.0
 
             total_duration += execution_time
@@ -176,13 +181,13 @@ def format_duration(total_seconds: float) -> str:
     return "".join(parts)
 
 
-def render_report(report: Report, args: CliArgs) -> str:
+def render_report(report: Report, args: Args) -> str:
     env = Environment(
         loader=FileSystemLoader(TEMPLATE_DIR),
         autoescape=False,
         keep_trailing_newline=True,
     )
-    template = env.get_template("template.jinja")
+    template = env.get_template("report.jinja")
     return template.render(
         passed=report.passed,
         failed=report.failed,
@@ -197,7 +202,7 @@ def render_report(report: Report, args: CliArgs) -> str:
     )
 
 
-def write_summary(body: str, args: CliArgs) -> None:
+def write_summary(body: str, args: Args) -> None:
     if args.summary != "true":
         return
 
@@ -211,7 +216,7 @@ def write_summary(body: str, args: CliArgs) -> None:
         f.write(body)
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv: Optional[list[str]] = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     args = parse_args(argv)
