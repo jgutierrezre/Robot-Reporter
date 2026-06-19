@@ -1,0 +1,31 @@
+### Robot Results
+| :white_check_mark: Passed | :x: Failed | :next_track_button: Skipped | Total | Pass % | :stopwatch: Duration |
+| --- | --- | --- | :---: | :---: | :---: |
+| {{ passed }} | {{ failed }} | {{ skipped }} | {{ total }} | {{ pass_percentage }} | {{ total_duration }} |
+
+{% if failed_tests and failed_tests_on_top %}
+### Failed Tests
+| Name | Message | :stopwatch: Duration | Suite |
+| --- | --- | :---: | :---: |
+{% for test in failed_tests -%}
+| {{ test.name }} | {{ test.message }} | {{ "%.3f"|format(test.execution_time) }} s | `{{ test.suite }}` |
+{% endfor %}
+{% endif %}
+
+{% if passed_tests and show_passed_tests %}
+### Passed Tests
+| Name | :stopwatch: Duration | Suite |
+| --- | :---: | :---: |
+{% for test in passed_tests -%}
+| {{ test.name }} | {{ "%.3f"|format(test.execution_time) }} s | `{{ test.suite }}` |
+{% endfor %}
+{% endif %}
+
+{% if failed_tests and not failed_tests_on_top %}
+### Failed Tests
+| Name | Message | :stopwatch: Duration | Suite |
+| --- | --- | :---: | :---: |
+{% for test in failed_tests -%}
+| {{ test.name }} | {{ test.message }} | {{ "%.3f"|format(test.execution_time) }} s | `{{ test.suite }}` |
+{% endfor %}
+{% endif %}
