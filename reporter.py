@@ -127,7 +127,7 @@ def parse_output_xml(report_path: str) -> Report:
 
             total_duration += execution_time
 
-            test = Test(
+            test: Test = Test(
                 name=name,
                 status=status,
                 suite=suite_name,
@@ -172,7 +172,7 @@ def format_duration(total_seconds: float) -> str:
     hours = int(total_seconds // 3600)
     minutes = int((total_seconds % 3600) // 60)
     seconds = total_seconds % 60
-    parts = []
+    parts: list[str] = []
     if hours:
         parts.append(f"{hours}h")
     if minutes:
