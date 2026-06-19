@@ -38,10 +38,12 @@ class Test:
 class Report:
     passed: int
     failed: int
-    skipped: str
+    skipped: int
     total: int
     pass_percentage: str
     total_duration: str
+    serial_duration: str
+    speedup: str
     passed_tests: list[Test] = field(default_factory=list)
     failed_tests: list[Test] = field(default_factory=list)
     show_passed_tests: bool = False
@@ -102,6 +104,7 @@ def parse_output_xml(report_path: str) -> Report:
 
     passed_tests: list[Test] = []
     failed_tests: list[Test] = []
+    serial_duration = 0.0
 
     for suite_elem in root.iter("suite"):
         suite_name = suite_elem.get("name", "Unknown Suite")
@@ -124,6 +127,8 @@ def parse_output_xml(report_path: str) -> Report:
                     "Invalid elapsed time '%s' for test '%s'", elapsed, name
                 )
                 execution_time = 0.0
+
+            serial_duration += execution_time
 
             test = Test(
                 name=name,
@@ -149,15 +154,26 @@ def parse_output_xml(report_path: str) -> Report:
 
     passed = int(stat_elem.get("pass", "0"))
     failed = int(stat_elem.get("fail", "0"))
-    skipped = stat_elem.get("skip", "0")
+    skipped = int(stat_elem.get("skip", "0"))
+
+    if serial_duration > 0 and total_elapsed > 0:
+        speedup = serial_duration / total_elapsed
+        if speedup >= 1.05:
+            speedup_str = f"{speedup:.1f}x faster"
+        else:
+            speedup_str = "—"
+    else:
+        speedup_str = "—"
 
     return Report(
         passed=passed,
         failed=failed,
         skipped=skipped,
-        total=passed + failed,
+        total=passed + failed + skipped,
         pass_percentage=pass_percentage(passed, failed),
         total_duration=format_duration(total_elapsed),
+        serial_duration=format_duration(serial_duration),
+        speedup=speedup_str,
         passed_tests=passed_tests,
         failed_tests=failed_tests,
     )
@@ -198,10 +214,13 @@ def render_report(report: Report, args: Args) -> str:
         total=report.total,
         pass_percentage=report.pass_percentage,
         total_duration=report.total_duration,
+        serial_duration=report.serial_duration,
+        speedup=report.speedup,
         passed_tests=report.passed_tests,
         failed_tests=report.failed_tests,
         show_passed_tests=args.show_passed_tests == "true",
         failed_tests_on_top=args.failed_tests_on_top == "true",
+        speedup_visible=report.speedup != "—",
     )
 
 

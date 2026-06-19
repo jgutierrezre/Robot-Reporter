@@ -2,6 +2,9 @@
 | :white_check_mark: Passed | :x: Failed | :next_track_button: Skipped | Total | Pass % | :stopwatch: Duration |
 | --- | --- | --- | :---: | :---: | :---: |
 | {{ passed }} | {{ failed }} | {{ skipped }} | {{ total }} | {{ pass_percentage }} | {{ total_duration }} |
+{% if speedup_visible -%}
+> :rocket: {{ speedup }} (serial would be {{ serial_duration }})
+{% endif %}
 
 {% if failed_tests and failed_tests_on_top %}
 ### Failed Tests
