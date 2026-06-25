@@ -235,9 +235,9 @@ def _sort_key(t: Test) -> int:
 def pass_percentage(passed: int, failed: int) -> str:
     if passed > 0 and failed == 0:
         return "100"
-    if passed > 0 and failed > 0:
-        return f"{(passed / (passed + failed) * 100):.2f}"
-    return "0"
+    if passed <= 0:
+        return "0"
+    return f"{(passed / (passed + failed) * 100):.2f}"
 
 
 def format_duration(total_seconds: float) -> str:
