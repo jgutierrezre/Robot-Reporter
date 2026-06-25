@@ -95,8 +95,8 @@ def parse_output_xml(report_path: str) -> Report:
     tree = ET.parse(xml_path)
     root = tree.getroot()
 
-    passed_tests: list[Test] = []
-    failed_tests: list[Test] = []
+    passed_tests: list[Test] = list()
+    failed_tests: list[Test] = list()
     serial_duration: float = 0.0
     test_suite_paths: list[list[str]] = []
 
