@@ -84,9 +84,7 @@ def parse_args(argv: list[str] | None = None) -> Args:
 
 def validate_args(args: Args) -> None:
     if not args.report_path:
-        sys.exit(
-            "Report path missing. Please define REPORT_PATH environment variable."
-        )
+        sys.exit("Report path missing. Please define REPORT_PATH environment variable.")
 
 
 def parse_output_xml(report_path: str) -> Report:
@@ -99,7 +97,7 @@ def parse_output_xml(report_path: str) -> Report:
 
     passed_tests: list[Test] = []
     failed_tests: list[Test] = []
-    serial_duration = 0.0
+    serial_duration: float = 0.0
     test_suite_paths: list[list[str]] = []
 
     parent_map: dict[ET.Element, ET.Element] = {}
@@ -132,9 +130,7 @@ def parse_output_xml(report_path: str) -> Report:
             try:
                 execution_time = float(elapsed)
             except (ValueError, TypeError):
-                log.warning(
-                    "Invalid elapsed time '%s' for test '%s'", elapsed, name
-                )
+                log.warning("Invalid elapsed time '%s' for test '%s'", elapsed, name)
                 execution_time = 0.0
 
             serial_duration += execution_time
@@ -148,7 +144,7 @@ def parse_output_xml(report_path: str) -> Report:
             parts.reverse()
             test_suite_paths.append(parts)
 
-            test = Test(
+            test: Test = Test(
                 test_id=test_id,
                 name=name,
                 status=status,
@@ -168,9 +164,7 @@ def parse_output_xml(report_path: str) -> Report:
         for path in test_suite_paths[1:]:
             i = 0
             while (
-                i < len(common_prefix)
-                and i < len(path)
-                and common_prefix[i] == path[i]
+                i < len(common_prefix) and i < len(path) and common_prefix[i] == path[i]
             ):
                 i += 1
             common_prefix = common_prefix[:i]
@@ -256,18 +250,16 @@ def format_duration(total_seconds: float) -> str:
 def message_cell(value: str) -> Markup:
     if not value:
         return Markup("")
-    return Markup(
-        f"<details><summary>show</summary>{html.escape(value)}</details>"
-    )
+    return Markup(f"<details><summary>show</summary>{html.escape(value)}</details>")
 
 
 def render_report(report: Report, args: Args) -> str:
-    env = Environment(
+    env: Environment = Environment(
         loader=FileSystemLoader(TEMPLATE_DIR),
         autoescape=True,
         keep_trailing_newline=True,
     )
-    env.filters["message_cell"] = message_cell
+    env.filters["message_cell"] = message_cell  # type: ignore[unknown-member]
     template = env.get_template("report.jinja")
     return template.render(
         passed=report.passed,
