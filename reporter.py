@@ -7,7 +7,7 @@ import logging
 import os
 import sys
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import cast
 
 from jinja2 import Environment, FileSystemLoader
@@ -47,8 +47,8 @@ class Report:
     total_duration: str
     serial_duration: str
     speedup: str
-    passed_tests: list[Test] = field(default_factory=list)
-    failed_tests: list[Test] = field(default_factory=list)
+    passed_tests: list[Test]
+    failed_tests: list[Test]
 
 
 DESCRIPTION = (
