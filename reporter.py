@@ -49,8 +49,6 @@ class Report:
     speedup: str
     passed_tests: list[Test] = field(default_factory=list)
     failed_tests: list[Test] = field(default_factory=list)
-    show_passed_tests: bool = False
-    failed_tests_on_top: bool = False
 
 
 DESCRIPTION = (
@@ -102,7 +100,6 @@ def parse_output_xml(report_path: str) -> Report:
     passed_tests: list[Test] = []
     failed_tests: list[Test] = []
     serial_duration = 0.0
-    seen: set[str] = set()
     test_suite_paths: list[list[str]] = []
 
     parent_map: dict[ET.Element, ET.Element] = {}
@@ -112,11 +109,6 @@ def parse_output_xml(report_path: str) -> Report:
 
     for suite_elem in root.iter("suite"):
         for test_elem in suite_elem.findall("test"):
-            test_id = test_elem.get("id", "")
-            if test_id in seen:
-                continue
-            seen.add(test_id)
-
             name = test_elem.get("name", "")
             status_elem = test_elem.find("status")
             if status_elem is None:
@@ -171,7 +163,7 @@ def parse_output_xml(report_path: str) -> Report:
             elif status == "FAIL":
                 failed_tests.append(test)
 
-    if test_suite_paths and all(test_suite_paths):
+    if test_suite_paths:
         common_prefix = list(test_suite_paths[0])
         for path in test_suite_paths[1:]:
             i = 0
