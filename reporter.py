@@ -116,7 +116,7 @@ def parse_output_xml(report_path: str) -> Report:
             elapsed = status_elem.get("elapsed", "0")
 
             message = status_elem.text or ""
-            message = message.replace("\n", " ").strip()
+            message = message.replace("\n", " ").replace("|", "\\|").strip()
 
             try:
                 execution_time = float(elapsed)
