@@ -220,7 +220,8 @@ def render_report(report: Report, args: Args) -> str:
 def write_summary(body: str) -> None:
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY", "")
     if not summary_path:
-        log.warning("GITHUB_STEP_SUMMARY not set, skipping summary write")
+        log.info("GITHUB_STEP_SUMMARY not set, printing to stdout")
+        print(body)
         return
 
     log.info("Writing report to GITHUB_STEP_SUMMARY")
