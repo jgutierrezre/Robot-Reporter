@@ -98,10 +98,15 @@ def parse_output_xml(report_path: str) -> Report:
     passed_tests: list[Test] = []
     failed_tests: list[Test] = []
     serial_duration = 0.0
+    seen: set[str] = set()
 
     for suite_elem in root.iter("suite"):
         suite_name = suite_elem.get("name", "Unknown Suite")
-        for test_elem in suite_elem.iter("test"):
+        for test_elem in suite_elem.findall("test"):
+            test_id = test_elem.get("id", "")
+            if test_id in seen:
+                continue
+            seen.add(test_id)
             name = test_elem.get("name", "")
             status_elem = test_elem.find("status")
             if status_elem is None:
