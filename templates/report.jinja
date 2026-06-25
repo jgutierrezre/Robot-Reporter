@@ -8,27 +8,27 @@
 
 {% if failed_tests and failed_tests_on_top %}
 ### Failed Tests
-| ID | Name | Message | :stopwatch: Duration | Suite |
-| --- | --- | --- | :---: | :---: |
+| ID | Name | Message | :stopwatch: Duration | Suite | Tags |
+| --- | --- | --- | :---: | :---: | --- |
 {% for test in failed_tests -%}
-| {{ test.test_id }} | {{ test.name }} | {{ test.message }} | {{ "%.3f"|format(test.execution_time) }} s | `{{ test.suite }}` |
+| {{ test.test_id }} | {{ test.name }} | {{ test.message }} | {{ "%.3f"|format(test.execution_time) }} s | `{{ test.suite }}` | {{ test.tags }} |
 {% endfor %}
 {% endif %}
 
 {% if passed_tests and show_passed_tests %}
 ### Passed Tests
-| ID | Name | :stopwatch: Duration | Suite |
-| --- | --- | :---: | :---: |
+| ID | Name | :stopwatch: Duration | Suite | Tags |
+| --- | --- | :---: | :---: | --- |
 {% for test in passed_tests -%}
-| {{ test.test_id }} | {{ test.name }} | {{ "%.3f"|format(test.execution_time) }} s | `{{ test.suite }}` |
+| {{ test.test_id }} | {{ test.name }} | {{ "%.3f"|format(test.execution_time) }} s | `{{ test.suite }}` | {{ test.tags }} |
 {% endfor %}
 {% endif %}
 
 {% if failed_tests and not failed_tests_on_top %}
 ### Failed Tests
-| ID | Name | Message | :stopwatch: Duration | Suite |
-| --- | --- | --- | :---: | :---: |
+| ID | Name | Message | :stopwatch: Duration | Suite | Tags |
+| --- | --- | --- | :---: | :---: | --- |
 {% for test in failed_tests -%}
-| {{ test.test_id }} | {{ test.name }} | {{ test.message }} | {{ "%.3f"|format(test.execution_time) }} s | `{{ test.suite }}` |
+| {{ test.test_id }} | {{ test.name }} | {{ test.message }} | {{ "%.3f"|format(test.execution_time) }} s | `{{ test.suite }}` | {{ test.tags }} |
 {% endfor %}
 {% endif %}

@@ -32,6 +32,7 @@ class Test:
     suite: str
     execution_time: float
     message: str
+    tags: str
 
 
 @dataclass
@@ -119,6 +120,15 @@ def parse_output_xml(report_path: str) -> Report:
             if status_elem is None:
                 continue
 
+            tags: list[str] = []
+            test_id = ""
+            for tag_elem in test_elem.iterfind("tag"):
+                tag_text = (tag_elem.text or "").strip()
+                if tag_text.startswith("id-"):
+                    test_id = tag_text
+                elif not tag_text.startswith("robot:"):
+                    tags.append(tag_text)
+
             status = status_elem.get("status", "UNKNOWN")
             elapsed = status_elem.get("elapsed", "0")
 
@@ -151,6 +161,7 @@ def parse_output_xml(report_path: str) -> Report:
                 suite="/".join(parts),
                 execution_time=execution_time,
                 message=message,
+                tags=", ".join(tags),
             )
 
             if status == "PASS":
