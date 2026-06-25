@@ -20,7 +20,6 @@ log = logging.getLogger(__name__)
 @dataclass
 class Args:
     report_path: str
-    summary: str
     show_passed_tests: str
     failed_tests_on_top: str
 
@@ -64,11 +63,6 @@ def parse_args(argv: list[str] | None = None) -> Args:
         help="Directory containing output.xml (default: $REPORT_PATH)",
     )
     _ = parser.add_argument(
-        "--summary",
-        default=os.environ.get("SUMMARY", ""),
-        help="Write report to GitHub step summary if true (default: $SUMMARY)",
-    )
-    _ = parser.add_argument(
         "--show_passed_tests",
         default=os.environ.get("SHOW_PASSED_TESTS", ""),
         help="Include passed tests in report if true (default: $SHOW_PASSED_TESTS)",
@@ -81,7 +75,6 @@ def parse_args(argv: list[str] | None = None) -> Args:
     raw = parser.parse_args(argv)
     return Args(
         report_path=cast(str, raw.report_path),
-        summary=cast(str, raw.summary),
         show_passed_tests=cast(str, raw.show_passed_tests),
         failed_tests_on_top=cast(str, raw.failed_tests_on_top),
     )
@@ -224,10 +217,7 @@ def render_report(report: Report, args: Args) -> str:
     )
 
 
-def write_summary(body: str, args: Args) -> None:
-    if args.summary != "true":
-        return
-
+def write_summary(body: str) -> None:
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY", "")
     if not summary_path:
         log.warning("GITHUB_STEP_SUMMARY not set, skipping summary write")
@@ -247,7 +237,7 @@ def main(argv: list[str] | None = None) -> None:
     report = parse_output_xml(args.report_path)
     body = render_report(report, args)
 
-    write_summary(body, args)
+    write_summary(body)
 
 
 if __name__ == "__main__":
