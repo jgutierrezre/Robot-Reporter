@@ -190,6 +190,15 @@ def parse_output_xml(report_path: str) -> Report:
             trimmed = parts[prefix_len:]
             test.suite = "/".join(trimmed) if trimmed else test.suite
 
+    def sort_key(t: Test) -> int:
+        try:
+            return int(t.test_id.split("-", 1)[1])
+        except (IndexError, ValueError):
+            return 0
+
+    passed_tests.sort(key=sort_key)
+    failed_tests.sort(key=sort_key)
+
     suite_status = root.find("suite/status")
     if suite_status is None:
         sys.exit("Could not find suite status in output.xml")
