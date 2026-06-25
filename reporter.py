@@ -2,6 +2,7 @@
 """Robot Reporter - Parse Robot Framework output.xml and post results to GitHub step summary."""
 
 import argparse
+import html
 import logging
 import os
 import sys
@@ -10,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import cast
 
 from jinja2 import Environment, FileSystemLoader
+from markupsafe import Markup
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(SCRIPT_DIR, "templates")
@@ -133,7 +135,7 @@ def parse_output_xml(report_path: str) -> Report:
             elapsed = status_elem.get("elapsed", "0")
 
             message = status_elem.text or ""
-            message = message.replace("\n", " ").replace("|", "\\|").strip()
+            message = message.replace("\n", " ").strip()
 
             try:
                 execution_time = float(elapsed)
@@ -245,12 +247,21 @@ def format_duration(total_seconds: float) -> str:
     return "".join(parts)
 
 
+def message_cell(value: str) -> Markup:
+    if not value:
+        return Markup("")
+    return Markup(
+        f"<details><summary>show</summary>{html.escape(value)}</details>"
+    )
+
+
 def render_report(report: Report, args: Args) -> str:
     env = Environment(
         loader=FileSystemLoader(TEMPLATE_DIR),
-        autoescape=False,
+        autoescape=True,
         keep_trailing_newline=True,
     )
+    env.filters["message_cell"] = message_cell
     template = env.get_template("report.jinja")
     return template.render(
         passed=report.passed,

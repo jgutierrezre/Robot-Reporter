@@ -11,7 +11,7 @@
 | ID | Name | Message | :stopwatch: Duration | Suite | Tags |
 | --- | --- | --- | :---: | :---: | --- |
 {% for test in failed_tests -%}
-| {{ test.test_id }} | {{ test.name }} | {{ test.message }} | {{ "%.3f"|format(test.execution_time) }} s | `{{ test.suite }}` | {{ test.tags }} |
+| {{ test.test_id }} | {{ test.name }} | {{ test.message | message_cell }} | {{ "%.3f"|format(test.execution_time) }} s | `{{ test.suite }}` | {{ test.tags }} |
 {% endfor %}
 {% endif %}
 
@@ -29,6 +29,6 @@
 | ID | Name | Message | :stopwatch: Duration | Suite | Tags |
 | --- | --- | --- | :---: | :---: | --- |
 {% for test in failed_tests -%}
-| {{ test.test_id }} | {{ test.name }} | {{ test.message }} | {{ "%.3f"|format(test.execution_time) }} s | `{{ test.suite }}` | {{ test.tags }} |
+| {{ test.test_id }} | {{ test.name }} | {{ test.message | message_cell }} | {{ "%.3f"|format(test.execution_time) }} s | `{{ test.suite }}` | {{ test.tags }} |
 {% endfor %}
 {% endif %}
