@@ -1,3 +1,16 @@
+{%- macro result_row(test) -%}
+| {{ test.test_id }} | {{ test.name }} | {{ test.message | message_cell }} | {{ "%.3f"|format(test.execution_time) }} s | `{{ test.suite }}` | {{ test.tags }} |
+{%- endmacro -%}
+
+{%- macro test_table(title, tests) -%}
+### {{ title }}
+| ID | Name | Message | :stopwatch: Duration | Suite | Tags |
+| --- | --- | --- | :---: | :---: | --- |
+{%- for test in tests %}
+{{ result_row(test) -}}
+{% endfor %}
+{%- endmacro -%}
+
 ### Robot Results
 | :white_check_mark: Passed | :x: Failed | :next_track_button: Skipped | Total | Pass % | :stopwatch: Duration |
 | --- | --- | --- | :---: | :---: | :---: |
@@ -6,29 +19,10 @@
 > :rocket: {{ speedup }} (serial would be {{ serial_duration }})
 {% endif %}
 
-{% if failed_tests and failed_tests_on_top %}
-### Failed Tests
-| ID | Name | Message | :stopwatch: Duration | Suite | Tags |
-| --- | --- | --- | :---: | :---: | --- |
-{% for test in failed_tests -%}
-| {{ test.test_id }} | {{ test.name }} | {{ test.message | message_cell }} | {{ "%.3f"|format(test.execution_time) }} s | `{{ test.suite }}` | {{ test.tags }} |
-{% endfor %}
-{% endif %}
-
-{% if passed_tests and show_passed_tests %}
-### Passed Tests
-| ID | Name | :stopwatch: Duration | Suite | Tags |
-| --- | --- | :---: | :---: | --- |
-{% for test in passed_tests -%}
-| {{ test.test_id }} | {{ test.name }} | {{ "%.3f"|format(test.execution_time) }} s | `{{ test.suite }}` | {{ test.tags }} |
-{% endfor %}
-{% endif %}
-
-{% if failed_tests and not failed_tests_on_top %}
-### Failed Tests
-| ID | Name | Message | :stopwatch: Duration | Suite | Tags |
-| --- | --- | --- | :---: | :---: | --- |
-{% for test in failed_tests -%}
-| {{ test.test_id }} | {{ test.name }} | {{ test.message | message_cell }} | {{ "%.3f"|format(test.execution_time) }} s | `{{ test.suite }}` | {{ test.tags }} |
-{% endfor %}
-{% endif %}
+{% if failed_tests_on_top -%}
+{% if failed_tests %}{{ test_table("Failed Tests", failed_tests) }}{% endif %}
+{% if show_passed_tests and passed_tests %}{{ test_table("Passed Tests", passed_tests) }}{% endif %}
+{%- else -%}
+{% if show_passed_tests and passed_tests %}{{ test_table("Passed Tests", passed_tests) }}{% endif %}
+{% if failed_tests %}{{ test_table("Failed Tests", failed_tests) }}{% endif %}
+{%- endif %}
