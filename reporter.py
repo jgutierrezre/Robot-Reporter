@@ -26,6 +26,7 @@ class Args:
 
 @dataclass
 class Test:
+    test_id: str
     name: str
     status: str
     suite: str
@@ -99,14 +100,20 @@ def parse_output_xml(report_path: str) -> Report:
     failed_tests: list[Test] = []
     serial_duration = 0.0
     seen: set[str] = set()
+    test_suite_paths: list[list[str]] = []
+
+    parent_map: dict[ET.Element, ET.Element] = {}
+    for p_elem in root.iter():
+        for c_elem in p_elem:
+            parent_map[c_elem] = p_elem
 
     for suite_elem in root.iter("suite"):
-        suite_name = suite_elem.get("name", "Unknown Suite")
         for test_elem in suite_elem.findall("test"):
             test_id = test_elem.get("id", "")
             if test_id in seen:
                 continue
             seen.add(test_id)
+
             name = test_elem.get("name", "")
             status_elem = test_elem.find("status")
             if status_elem is None:
@@ -128,10 +135,20 @@ def parse_output_xml(report_path: str) -> Report:
 
             serial_duration += execution_time
 
+            parts: list[str] = []
+            node = parent_map.get(test_elem)
+            while node is not None:
+                if node.tag == "suite":
+                    parts.append(node.get("name", "?"))
+                node = parent_map.get(node)
+            parts.reverse()
+            test_suite_paths.append(parts)
+
             test = Test(
+                test_id=test_id,
                 name=name,
                 status=status,
-                suite=suite_name,
+                suite="/".join(parts),
                 execution_time=execution_time,
                 message=message,
             )
@@ -140,6 +157,25 @@ def parse_output_xml(report_path: str) -> Report:
                 passed_tests.append(test)
             elif status == "FAIL":
                 failed_tests.append(test)
+
+    if test_suite_paths and all(test_suite_paths):
+        common_prefix = list(test_suite_paths[0])
+        for path in test_suite_paths[1:]:
+            i = 0
+            while i < len(common_prefix) and i < len(path) and common_prefix[i] == path[i]:
+                i += 1
+            common_prefix = common_prefix[:i]
+            if not common_prefix:
+                break
+        prefix_len = len(common_prefix)
+    else:
+        prefix_len = 0
+
+    for test_list in (passed_tests, failed_tests):
+        for test in test_list:
+            parts = test.suite.split("/")
+            trimmed = parts[prefix_len:]
+            test.suite = "/".join(trimmed) if trimmed else test.suite
 
     suite_status = root.find("suite/status")
     if suite_status is None:
