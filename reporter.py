@@ -167,7 +167,11 @@ def parse_output_xml(report_path: str) -> Report:
         common_prefix = list(test_suite_paths[0])
         for path in test_suite_paths[1:]:
             i = 0
-            while i < len(common_prefix) and i < len(path) and common_prefix[i] == path[i]:
+            while (
+                i < len(common_prefix)
+                and i < len(path)
+                and common_prefix[i] == path[i]
+            ):
                 i += 1
             common_prefix = common_prefix[:i]
             if not common_prefix:
@@ -182,14 +186,8 @@ def parse_output_xml(report_path: str) -> Report:
             trimmed = parts[prefix_len:]
             test.suite = "/".join(trimmed) if trimmed else test.suite
 
-    def sort_key(t: Test) -> int:
-        try:
-            return int(t.test_id.split("-", 1)[1])
-        except (IndexError, ValueError):
-            return 0
-
-    passed_tests.sort(key=sort_key)
-    failed_tests.sort(key=sort_key)
+    passed_tests.sort(key=_sort_key)
+    failed_tests.sort(key=_sort_key)
 
     suite_status = root.find("suite/status")
     if suite_status is None:
@@ -225,6 +223,13 @@ def parse_output_xml(report_path: str) -> Report:
         passed_tests=passed_tests,
         failed_tests=failed_tests,
     )
+
+
+def _sort_key(t: Test) -> int:
+    try:
+        return int(t.test_id.split("-", 1)[1])
+    except (IndexError, ValueError):
+        return 0
 
 
 def pass_percentage(passed: int, failed: int) -> str:
