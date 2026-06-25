@@ -247,11 +247,6 @@ def main(argv: list[str] | None = None) -> None:
     report = parse_output_xml(args.report_path)
     body = render_report(report, args)
 
-    if output := os.environ.get("GITHUB_OUTPUT"):
-        log.info("Writing report_body to GITHUB_OUTPUT")
-        with open(output, "a", encoding="utf-8") as f:
-            _ = f.write(f"report_body<<EOF\n{body}\nEOF\n")
-
     write_summary(body, args)
 
 
