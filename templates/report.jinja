@@ -19,6 +19,25 @@
 > :rocket: {{ speedup }} (serial would be {{ serial_duration }})
 {% endif %}
 
+{%- set grouped = failure_groups | selectattr('count', 'ge', 2) | list -%}
+{% if grouped -%}
+### :mag: Root Cause Summary ({{ grouped|length }} distinct {{ 'issue' if grouped|length == 1 else 'issues' }})
+
+{% for group in grouped -%}
+<details>
+<summary>:x: **{{ group.count }}** — `{{ group.failing_keyword }}`: {{ group.message_signature }}</summary>
+
+| ID | Name | Suite |
+| --- | --- | --- |
+{%- for test in group.tests %}
+| {{ test.test_id }} | {{ test.name }} | `{{ test.suite }}` |
+{%- endfor %}
+
+</details>
+
+{% endfor -%}
+{% endif -%}
+
 {% if failed_tests_on_top -%}
 {% if failed_tests %}{{ test_table("Failed Tests", failed_tests) }}{% endif %}
 {% if show_passed_tests and passed_tests %}{{ test_table("Passed Tests", passed_tests) }}{% endif %}

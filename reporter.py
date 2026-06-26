@@ -5,9 +5,10 @@ import argparse
 import html
 import logging
 import os
+import re
 import sys
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import cast
 
 from jinja2 import Environment, FileSystemLoader
@@ -38,6 +39,14 @@ class Test:
 
 
 @dataclass
+class FailureGroup:
+    failing_keyword: str
+    message_signature: str
+    count: int
+    tests: list[Test] = field(default_factory=list[Test])
+
+
+@dataclass
 class Report:
     passed: int
     failed: int
@@ -47,8 +56,9 @@ class Report:
     total_duration: str
     serial_duration: str
     speedup: str
-    passed_tests: list[Test]
-    failed_tests: list[Test]
+    passed_tests: list[Test] = field(default_factory=list[Test])
+    failed_tests: list[Test] = field(default_factory=list[Test])
+    failure_groups: list[FailureGroup] = field(default_factory=list[FailureGroup])
 
 
 DESCRIPTION = (
@@ -99,6 +109,7 @@ def parse_output_xml(report_path: str) -> Report:
     failed_tests: list[Test] = list()
     serial_duration: float = 0.0
     test_suite_paths: list[list[str]] = []
+    test_map: dict[str, ET.Element] = {}
 
     parent_map: dict[ET.Element, ET.Element] = {}
     for p_elem in root.iter():
@@ -158,6 +169,7 @@ def parse_output_xml(report_path: str) -> Report:
                 passed_tests.append(test)
             elif status == "FAIL":
                 failed_tests.append(test)
+                test_map[name] = test_elem
 
     if test_suite_paths:
         common_prefix = list(test_suite_paths[0])
@@ -205,6 +217,8 @@ def parse_output_xml(report_path: str) -> Report:
     else:
         speedup_str = "—"
 
+    failure_groups = group_failures(failed_tests, test_map, parent_map)
+
     return Report(
         passed=passed,
         failed=failed,
@@ -216,7 +230,78 @@ def parse_output_xml(report_path: str) -> Report:
         speedup=speedup_str,
         passed_tests=passed_tests,
         failed_tests=failed_tests,
+        failure_groups=failure_groups,
     )
+
+
+def find_deepest_failure(
+    test_elem: ET.Element, parent_map: dict[ET.Element, ET.Element]
+) -> tuple[str, str]:
+    best_kw = ""
+    best_msg = ""
+    best_depth = -1
+
+    def walk(elem: ET.Element, depth: int):
+        nonlocal best_kw, best_msg, best_depth
+        if elem.tag == "kw":
+            status = elem.find("status")
+            if status is not None and status.get("status") == "FAIL":
+                parent = parent_map.get(elem)
+                parent_fails = (
+                    parent is not None
+                    and parent.tag == "kw"
+                    and (ps := parent.find("status")) is not None
+                    and ps.get("status") == "FAIL"
+                )
+                parent_is_test = parent is not None and parent.tag == "test"
+                if (parent_fails or parent_is_test) and depth > best_depth:
+                    best_kw = elem.get("name", "")
+                    best_msg = (status.text or "").strip()
+                    best_depth = depth
+        for child in elem:
+            walk(child, depth + 1)
+
+    walk(test_elem, 0)
+    if not best_kw:
+        status = test_elem.find("status")
+        if status is not None and status.get("status") == "FAIL":
+            best_kw = "(test level)"
+            best_msg = (status.text or "").strip()
+    return best_kw, best_msg
+
+
+def normalize_message(message: str) -> str:
+    msg = re.sub(r"\bStacktrace:.*$", "", message, flags=re.DOTALL)
+    msg = re.sub(r"'[^']*(?:css|xpath|id|name|class):[^']*'", "'LOCATOR'", msg)
+    msg = re.sub(r"\b0x[0-9a-fA-F]+\b", "0xN", msg)
+    msg = re.sub(r"\b\d{1,3}(?:,?\d{3})*(?:\.\d+)?\b", "N", msg)
+    msg = re.sub(r"after \d+ seconds", "after N seconds", msg)
+    msg = re.sub(r"\s+", " ", msg).strip()
+    return msg
+
+
+def group_failures(
+    failed_tests: list[Test],
+    test_map: dict[str, ET.Element],
+    parent_map: dict[ET.Element, ET.Element],
+) -> list[FailureGroup]:
+    groups: dict[tuple[str, str], FailureGroup] = {}
+    for test in failed_tests:
+        test_elem = test_map.get(test.name)
+        if test_elem is None:
+            continue
+        kw_name, msg = find_deepest_failure(test_elem, parent_map)
+        sig = normalize_message(msg)
+        key = (kw_name, sig)
+        if key not in groups:
+            groups[key] = FailureGroup(
+                failing_keyword=kw_name,
+                message_signature=sig,
+                count=0,
+            )
+        groups[key].count += 1
+        groups[key].tests.append(test)
+    return sorted(groups.values(), key=lambda g: g.count, reverse=True)
 
 
 def _sort_key(t: Test) -> int:
@@ -275,6 +360,7 @@ def render_report(report: Report, args: Args) -> str:
         show_passed_tests=args.show_passed_tests == "true",
         failed_tests_on_top=args.failed_tests_on_top == "true",
         speedup_visible=report.speedup != "—",
+        failure_groups=report.failure_groups,
     )
 
 
