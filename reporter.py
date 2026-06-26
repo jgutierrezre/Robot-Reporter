@@ -25,6 +25,7 @@ class Args:
     report_path: str
     show_passed_tests: str
     failed_tests_on_top: str
+    report_type: str
 
 
 @dataclass
@@ -84,11 +85,18 @@ def parse_args(argv: list[str] | None = None) -> Args:
         default=os.environ.get("FAILED_TESTS_ON_TOP", ""),
         help="Show failed tests before passed tests if true (default: $FAILED_TESTS_ON_TOP)",
     )
+    _ = parser.add_argument(
+        "--report_type",
+        default=os.environ.get("REPORT_TYPE", "full"),
+        choices=["full", "compact", "minimal"],
+        help="Report detail level: full, compact, or minimal (default: $REPORT_TYPE or full)",
+    )
     raw = parser.parse_args(argv)
     return Args(
         report_path=cast(str, raw.report_path),
         show_passed_tests=cast(str, raw.show_passed_tests),
         failed_tests_on_top=cast(str, raw.failed_tests_on_top),
+        report_type=cast(str, raw.report_type),
     )
 
 
@@ -361,6 +369,7 @@ def render_report(report: Report, args: Args) -> str:
         failed_tests_on_top=args.failed_tests_on_top == "true",
         speedup_visible=report.speedup != "—",
         failure_groups=report.failure_groups,
+        report_type=args.report_type,
     )
 
 

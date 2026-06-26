@@ -1,13 +1,26 @@
-{%- macro result_row(test) -%}
+{%- set is_full = report_type == 'full' -%}
+{%- set is_compact = report_type == 'compact' -%}
+{%- set is_minimal = report_type == 'minimal' -%}
+{%- macro result_row_full(test) -%}
 | {{ test.test_id }} | {{ test.name }} | {{ test.message | message_cell }} | {{ "%.3f"|format(test.execution_time) }} s | `{{ test.suite }}` | {{ test.tags }} |
 {%- endmacro -%}
-
-{%- macro test_table(title, tests) -%}
+{%- macro result_row_compact(test) -%}
+| {{ test.test_id }} | {{ test.name }} | `{{ test.suite }}` |
+{%- endmacro -%}
+{%- macro test_table_full(title, tests) -%}
 ### {{ title }}
 | ID | Name | Message | :stopwatch: Duration | Suite | Tags |
 | --- | --- | --- | :---: | :---: | --- |
 {%- for test in tests %}
-{{ result_row(test) -}}
+{{ result_row_full(test) -}}
+{% endfor %}
+{%- endmacro -%}
+{%- macro test_table_compact(title, tests) -%}
+### {{ title }}
+| ID | Name | Suite |
+| --- | --- | --- |
+{%- for test in tests %}
+{{ result_row_compact(test) -}}
 {% endfor %}
 {%- endmacro -%}
 
@@ -15,14 +28,14 @@
 | :white_check_mark: Passed | :x: Failed | :next_track_button: Skipped | Total | Pass % | :stopwatch: Duration |
 | --- | --- | --- | :---: | :---: | :---: |
 | {{ passed }} | {{ failed }} | {{ skipped }} | {{ total }} | {{ pass_percentage }} | {{ total_duration }} |
-{% if speedup_visible -%}
+{% if not is_minimal and speedup_visible -%}
 > :rocket: {{ speedup }} (serial would be {{ serial_duration }})
 {% endif %}
-
+{% if not is_minimal -%}
 {%- set grouped = failure_groups | selectattr('count', 'ge', 2) | list -%}
 {% if grouped -%}
 ### :mag: Root Cause Summary ({{ grouped|length }} distinct {{ 'issue' if grouped|length == 1 else 'issues' }})
-
+{% if is_full -%}
 {% for group in grouped -%}
 <details>
 <summary>:x: **{{ group.count }}** — `{{ group.failing_keyword }}`: {{ group.message_signature }}</summary>
@@ -36,12 +49,33 @@
 </details>
 
 {% endfor -%}
-{% endif -%}
-
-{% if failed_tests_on_top -%}
-{% if failed_tests %}{{ test_table("Failed Tests", failed_tests) }}{% endif %}
-{% if show_passed_tests and passed_tests %}{{ test_table("Passed Tests", passed_tests) }}{% endif %}
 {%- else -%}
-{% if show_passed_tests and passed_tests %}{{ test_table("Passed Tests", passed_tests) }}{% endif %}
-{% if failed_tests %}{{ test_table("Failed Tests", failed_tests) }}{% endif %}
+| :x: Count | Failing Keyword | Signature |
+| --- | --- | --- |
+{%- for group in grouped %}
+| **{{ group.count }}** | `{{ group.failing_keyword }}` | {{ group.message_signature }} |
+{%- endfor %}
+{% endif -%}
+{% endif -%}
+{% endif %}
+{% if not is_minimal -%}
+{% if failed_tests_on_top -%}
+{% if failed_tests -%}
+{% if is_full -%}
+{{ test_table_full("Failed Tests", failed_tests) }}
+{%- else -%}
+{{ test_table_compact("Failed Tests", failed_tests) }}
+{%- endif -%}
+{% endif %}
+{% if is_full and show_passed_tests and passed_tests %}{{ test_table_full("Passed Tests", passed_tests) }}{% endif %}
+{%- else -%}
+{% if is_full and show_passed_tests and passed_tests %}{{ test_table_full("Passed Tests", passed_tests) }}{% endif %}
+{% if failed_tests -%}
+{% if is_full -%}
+{{ test_table_full("Failed Tests", failed_tests) }}
+{%- else -%}
+{{ test_table_compact("Failed Tests", failed_tests) }}
+{%- endif -%}
+{% endif %}
+{%- endif %}
 {%- endif %}
