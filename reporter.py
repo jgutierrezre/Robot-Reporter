@@ -2,6 +2,7 @@
 """Robot Reporter - Parse Robot Framework output.xml and post results to GitHub step summary."""
 
 import argparse
+import datetime
 import html
 import logging
 import os
@@ -10,6 +11,8 @@ import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import cast
+
+import yaml
 
 from jinja2 import Environment, FileSystemLoader
 from markupsafe import Markup
@@ -26,6 +29,11 @@ class Args:
     show_passed_tests: str
     failed_tests_on_top: str
     report_type: str
+    history_path: str
+    test_tags: str
+    run_parallel: str
+    thread_count: str
+    test_path: str
 
 
 @dataclass
@@ -91,12 +99,42 @@ def parse_args(argv: list[str] | None = None) -> Args:
         choices=["full", "compact", "minimal"],
         help="Report detail level: full, compact, or minimal (default: $REPORT_TYPE or full)",
     )
+    _ = parser.add_argument(
+        "--history_path",
+        default=os.environ.get("HISTORY_PATH", ""),
+        help="YAML file to append test result history (default: $HISTORY_PATH)",
+    )
+    _ = parser.add_argument(
+        "--test_tags",
+        default=os.environ.get("TEST_TAGS", ""),
+        help="GitHub workflow input: test tags filter (default: $TEST_TAGS)",
+    )
+    _ = parser.add_argument(
+        "--run_parallel",
+        default=os.environ.get("RUN_PARALLEL", ""),
+        help="GitHub workflow input: run in parallel if true (default: $RUN_PARALLEL)",
+    )
+    _ = parser.add_argument(
+        "--thread_count",
+        default=os.environ.get("THREAD_COUNT", ""),
+        help="GitHub workflow input: parallel thread count (default: $THREAD_COUNT)",
+    )
+    _ = parser.add_argument(
+        "--test_path",
+        default=os.environ.get("TEST_PATH", ""),
+        help="GitHub workflow input: test path filter (default: $TEST_PATH)",
+    )
     raw = parser.parse_args(argv)
     return Args(
         report_path=cast(str, raw.report_path),
         show_passed_tests=cast(str, raw.show_passed_tests),
         failed_tests_on_top=cast(str, raw.failed_tests_on_top),
         report_type=cast(str, raw.report_type),
+        history_path=cast(str, raw.history_path),
+        test_tags=cast(str, raw.test_tags),
+        run_parallel=cast(str, raw.run_parallel),
+        thread_count=cast(str, raw.thread_count),
+        test_path=cast(str, raw.test_path),
     )
 
 
@@ -346,6 +384,46 @@ def message_cell(value: str) -> Markup:
     return Markup(f"<details><summary>show</summary>{html.escape(value)}</details>")
 
 
+def write_history(report: Report, args: Args) -> None:
+    if not args.history_path:
+        return
+
+    history: list[dict] = []
+    if os.path.isfile(args.history_path):
+        try:
+            with open(args.history_path, encoding="utf-8") as f:
+                loaded = yaml.safe_load(f)
+            if isinstance(loaded, list):
+                history = loaded
+        except yaml.YAMLError:
+            log.warning("Failed to parse %s, starting fresh", args.history_path)
+
+    try:
+        thread_count = int(args.thread_count)
+    except (ValueError, TypeError):
+        thread_count = 0
+
+    record = {
+        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "passed": report.passed,
+        "failed": report.failed,
+        "skipped": report.skipped,
+        "total": report.total,
+        "pass_percentage": report.pass_percentage,
+        "total_duration": report.total_duration,
+        "test_tags": args.test_tags,
+        "run_parallel": args.run_parallel == "true",
+        "thread_count": thread_count,
+        "test_path": args.test_path,
+    }
+    history.append(record)
+
+    with open(args.history_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(history, f, allow_unicode=True, sort_keys=False)
+
+    log.info("Appended history record to %s", args.history_path)
+
+
 def render_report(report: Report, args: Args) -> str:
     env: Environment = Environment(
         loader=FileSystemLoader(TEMPLATE_DIR),
@@ -392,6 +470,7 @@ def main(argv: list[str] | None = None) -> None:
     validate_args(args)
 
     report = parse_output_xml(args.report_path)
+    write_history(report, args)
     body = render_report(report, args)
 
     write_summary(body)
