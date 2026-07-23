@@ -9,7 +9,7 @@ import os
 import re
 import sys
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import cast
 
 import yaml
@@ -68,6 +68,21 @@ class Report:
     passed_tests: list[Test] = field(default_factory=list[Test])
     failed_tests: list[Test] = field(default_factory=list[Test])
     failure_groups: list[FailureGroup] = field(default_factory=list[FailureGroup])
+
+
+@dataclass
+class HistoryRecord:
+    timestamp: str
+    passed: int
+    failed: int
+    skipped: int
+    total: int
+    pass_percentage: str
+    total_duration: str
+    test_tags: str
+    run_parallel: bool
+    thread_count: int
+    test_path: str
 
 
 DESCRIPTION = (
@@ -388,13 +403,13 @@ def write_history(report: Report, args: Args) -> None:
     if not args.history_path:
         return
 
-    history: list[dict] = []
+    history: list[dict[str, object]] = []
     if os.path.isfile(args.history_path):
         try:
             with open(args.history_path, encoding="utf-8") as f:
-                loaded = yaml.safe_load(f)
+                loaded: object = yaml.safe_load(f)
             if isinstance(loaded, list):
-                history = loaded
+                history = loaded  # type: ignore[assignment]
         except yaml.YAMLError:
             log.warning("Failed to parse %s, starting fresh", args.history_path)
 
@@ -403,20 +418,20 @@ def write_history(report: Report, args: Args) -> None:
     except (ValueError, TypeError):
         thread_count = 0
 
-    record = {
-        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "passed": report.passed,
-        "failed": report.failed,
-        "skipped": report.skipped,
-        "total": report.total,
-        "pass_percentage": report.pass_percentage,
-        "total_duration": report.total_duration,
-        "test_tags": args.test_tags,
-        "run_parallel": args.run_parallel == "true",
-        "thread_count": thread_count,
-        "test_path": args.test_path,
-    }
-    history.append(record)
+    record = HistoryRecord(
+        timestamp=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        passed=report.passed,
+        failed=report.failed,
+        skipped=report.skipped,
+        total=report.total,
+        pass_percentage=report.pass_percentage,
+        total_duration=report.total_duration,
+        test_tags=args.test_tags,
+        run_parallel=args.run_parallel == "true",
+        thread_count=thread_count,
+        test_path=args.test_path,
+    )
+    history.append(asdict(record))
 
     with open(args.history_path, "w", encoding="utf-8") as f:
         yaml.safe_dump(history, f, allow_unicode=True, sort_keys=False)
