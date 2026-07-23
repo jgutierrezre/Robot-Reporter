@@ -6,7 +6,6 @@ import datetime
 import html
 import logging
 import os
-import re
 import sys
 import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass, field
@@ -48,14 +47,6 @@ class Test:
 
 
 @dataclass
-class FailureGroup:
-    failing_keyword: str
-    message_signature: str
-    count: int
-    tests: list[Test] = field(default_factory=list[Test])
-
-
-@dataclass
 class Report:
     passed: int
     failed: int
@@ -67,7 +58,6 @@ class Report:
     speedup: str
     passed_tests: list[Test] = field(default_factory=list[Test])
     failed_tests: list[Test] = field(default_factory=list[Test])
-    failure_groups: list[FailureGroup] = field(default_factory=list[FailureGroup])
 
 
 @dataclass
@@ -83,6 +73,14 @@ class HistoryRecord:
     run_parallel: bool
     thread_count: int
     test_path: str
+    tests: list[dict[str, str]] = field(default_factory=list[dict[str, str]])
+
+
+@dataclass
+class TestHistoryResult:
+    pass_pct: str
+    is_new_error: bool
+    consec_fails: int
 
 
 DESCRIPTION = (
@@ -170,7 +168,6 @@ def parse_output_xml(report_path: str) -> Report:
     failed_tests: list[Test] = list()
     serial_duration: float = 0.0
     test_suite_paths: list[list[str]] = []
-    test_map: dict[str, ET.Element] = {}
 
     parent_map: dict[ET.Element, ET.Element] = {}
     for p_elem in root.iter():
@@ -230,7 +227,6 @@ def parse_output_xml(report_path: str) -> Report:
                 passed_tests.append(test)
             elif status == "FAIL":
                 failed_tests.append(test)
-                test_map[name] = test_elem
 
     if test_suite_paths:
         common_prefix = list(test_suite_paths[0])
@@ -253,8 +249,8 @@ def parse_output_xml(report_path: str) -> Report:
             trimmed = parts[prefix_len:]
             test.suite = "/".join(trimmed) if trimmed else test.suite
 
-    passed_tests.sort(key=_sort_key)
-    failed_tests.sort(key=_sort_key)
+    passed_tests.sort(key=id_sort_key)
+    failed_tests.sort(key=id_sort_key)
 
     suite_status = root.find("suite/status")
     if suite_status is None:
@@ -278,8 +274,6 @@ def parse_output_xml(report_path: str) -> Report:
     else:
         speedup_str = "—"
 
-    failure_groups = group_failures(failed_tests, test_map, parent_map)
-
     return Report(
         passed=passed,
         failed=failed,
@@ -291,81 +285,10 @@ def parse_output_xml(report_path: str) -> Report:
         speedup=speedup_str,
         passed_tests=passed_tests,
         failed_tests=failed_tests,
-        failure_groups=failure_groups,
     )
 
 
-def find_deepest_failure(
-    test_elem: ET.Element, parent_map: dict[ET.Element, ET.Element]
-) -> tuple[str, str]:
-    best_kw = ""
-    best_msg = ""
-    best_depth = -1
-
-    def walk(elem: ET.Element, depth: int):
-        nonlocal best_kw, best_msg, best_depth
-        if elem.tag == "kw":
-            status = elem.find("status")
-            if status is not None and status.get("status") == "FAIL":
-                parent = parent_map.get(elem)
-                parent_fails = (
-                    parent is not None
-                    and parent.tag == "kw"
-                    and (ps := parent.find("status")) is not None
-                    and ps.get("status") == "FAIL"
-                )
-                parent_is_test = parent is not None and parent.tag == "test"
-                if (parent_fails or parent_is_test) and depth > best_depth:
-                    best_kw = elem.get("name", "")
-                    best_msg = (status.text or "").strip()
-                    best_depth = depth
-        for child in elem:
-            walk(child, depth + 1)
-
-    walk(test_elem, 0)
-    if not best_kw:
-        status = test_elem.find("status")
-        if status is not None and status.get("status") == "FAIL":
-            best_kw = "(test level)"
-            best_msg = (status.text or "").strip()
-    return best_kw, best_msg
-
-
-def normalize_message(message: str) -> str:
-    msg = re.sub(r"\bStacktrace:.*$", "", message, flags=re.DOTALL)
-    msg = re.sub(r"'[^']*(?:css|xpath|id|name|class):[^']*'", "'LOCATOR'", msg)
-    msg = re.sub(r"\b0x[0-9a-fA-F]+\b", "0xN", msg)
-    msg = re.sub(r"\b\d{1,3}(?:,?\d{3})*(?:\.\d+)?\b", "N", msg)
-    msg = re.sub(r"after \d+ seconds", "after N seconds", msg)
-    msg = re.sub(r"\s+", " ", msg).strip()
-    return msg
-
-
-def group_failures(
-    failed_tests: list[Test],
-    test_map: dict[str, ET.Element],
-    parent_map: dict[ET.Element, ET.Element],
-) -> list[FailureGroup]:
-    groups: dict[tuple[str, str], FailureGroup] = {}
-    for test in failed_tests:
-        test_elem = test_map.get(test.name)
-        if test_elem is None:
-            continue
-        kw_name, msg = find_deepest_failure(test_elem, parent_map)
-        sig = normalize_message(msg)
-        key = (kw_name, sig)
-        if key not in groups:
-            groups[key] = FailureGroup(
-                failing_keyword=kw_name,
-                message_signature=sig,
-                count=0,
-            )
-        groups[key].count += 1
-        groups[key].tests.append(test)
-    return sorted(groups.values(), key=lambda g: g.count, reverse=True)
-
-
-def _sort_key(t: Test) -> int:
+def id_sort_key(t: Test) -> int:
     try:
         return int(t.test_id.split("-", 1)[1])
     except (IndexError, ValueError):
@@ -399,6 +322,56 @@ def message_cell(value: str) -> Markup:
     return Markup(f"<details><summary>show</summary>{html.escape(value)}</details>")
 
 
+def load_history(history_path: str) -> list[dict[str, object]]:
+    if not history_path or not os.path.isfile(history_path):
+        return []
+    try:
+        with open(history_path, encoding="utf-8") as f:
+            loaded: object = yaml.safe_load(f)
+        if isinstance(loaded, list):
+            return loaded  # type: ignore[return-value]
+    except yaml.YAMLError:
+        log.warning("Failed to parse %s, starting fresh", history_path)
+    return []
+
+
+def compute_test_history(
+    history_entries: list[dict[str, object]],
+) -> dict[str, TestHistoryResult]:
+    stats: dict[str, dict[str, int]] = {}
+    for entry in history_entries:
+        tests_raw = entry.get("tests")
+        if not isinstance(tests_raw, list):
+            continue
+        for test_entry in cast(list[object], tests_raw):
+            if not isinstance(test_entry, dict):
+                continue
+            entry_dict = cast(dict[str, object], test_entry)
+            test_id = str(entry_dict.get("test_id", ""))
+            status = str(entry_dict.get("status", ""))
+            if not test_id:
+                continue
+            if test_id not in stats:
+                stats[test_id] = {"pass": 0, "fail": 0, "consec_fails": 0}
+            if status == "PASS":
+                stats[test_id]["pass"] += 1
+                stats[test_id]["consec_fails"] = 0
+            elif status == "FAIL":
+                stats[test_id]["fail"] += 1
+                stats[test_id]["consec_fails"] += 1
+
+    result: dict[str, TestHistoryResult] = {}
+    for test_id, counts in stats.items():
+        total = counts["pass"] + counts["fail"]
+        pct = f"{(counts['pass'] / total * 100):.0f}%" if total > 0 else "—"
+        result[test_id] = TestHistoryResult(
+            pass_pct=pct,
+            is_new_error=counts["fail"] == 0,
+            consec_fails=counts["consec_fails"],
+        )
+    return result
+
+
 def write_history(report: Report, args: Args) -> None:
     if not args.history_path:
         return
@@ -418,6 +391,11 @@ def write_history(report: Report, args: Args) -> None:
     except (ValueError, TypeError):
         thread_count = 0
 
+    per_test: list[dict[str, str]] = []
+    for test_list in (report.passed_tests, report.failed_tests):
+        for test in test_list:
+            per_test.append({"test_id": test.test_id, "status": test.status})
+
     record = HistoryRecord(
         timestamp=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         passed=report.passed,
@@ -430,6 +408,7 @@ def write_history(report: Report, args: Args) -> None:
         run_parallel=args.run_parallel == "true",
         thread_count=thread_count,
         test_path=args.test_path,
+        tests=per_test,
     )
     history.append(asdict(record))
 
@@ -439,7 +418,9 @@ def write_history(report: Report, args: Args) -> None:
     log.info("Appended history record to %s", args.history_path)
 
 
-def render_report(report: Report, args: Args) -> str:
+def render_report(
+    report: Report, args: Args, test_history: dict[str, TestHistoryResult]
+) -> str:
     env: Environment = Environment(
         loader=FileSystemLoader(TEMPLATE_DIR),
         autoescape=True,
@@ -458,10 +439,10 @@ def render_report(report: Report, args: Args) -> str:
         speedup=report.speedup,
         passed_tests=report.passed_tests,
         failed_tests=report.failed_tests,
+        test_history=test_history,
         show_passed_tests=args.show_passed_tests == "true",
         failed_tests_on_top=args.failed_tests_on_top == "true",
         speedup_visible=report.speedup != "—",
-        failure_groups=report.failure_groups,
         report_type=args.report_type,
     )
 
@@ -485,8 +466,10 @@ def main(argv: list[str] | None = None) -> None:
     validate_args(args)
 
     report = parse_output_xml(args.report_path)
+    history_entries = load_history(args.history_path)
+    test_history = compute_test_history(history_entries)
     write_history(report, args)
-    body = render_report(report, args)
+    body = render_report(report, args, test_history)
 
     write_summary(body)
 

@@ -1,24 +1,32 @@
 {%- set is_full = report_type == 'full' -%}
 {%- set is_compact = report_type == 'compact' -%}
 {%- set is_minimal = report_type == 'minimal' -%}
+{%- macro hist_cells(test) -%}
+{%- set h = test_history.get(test.test_id) if test.test_id else none -%}
+{%- if test.status == 'FAIL' -%}
+{{ h.pass_pct if h else '—' }} | {{ 'Yes' if h is none or h.is_new_error else 'No' }} | {{ (h.consec_fails + 1) if h else 1 }}
+{%- else -%}
+{{ h.pass_pct if h else '—' }} | — | —
+{%- endif -%}
+{%- endmacro -%}
 {%- macro result_row_full(test) -%}
-| {{ test.test_id }} | {{ test.name }} | {{ test.message | message_cell }} | {{ "%.3f"|format(test.execution_time) }} s | `{{ test.suite }}` | {{ test.tags }} |
+| {{ test.test_id }} | {{ test.name }} | {{ hist_cells(test) }} | {{ test.message | message_cell }} | {{ "%.3f"|format(test.execution_time) }} s | `{{ test.suite }}` | {{ test.tags }} |
 {%- endmacro -%}
 {%- macro result_row_compact(test) -%}
-| {{ test.test_id }} | {{ test.name }} | `{{ test.suite }}` |
+| {{ test.test_id }} | {{ test.name }} | {{ hist_cells(test) }} | `{{ test.suite }}` |
 {%- endmacro -%}
 {%- macro test_table_full(title, tests) -%}
 ### {{ title }}
-| ID | Name | Message | :stopwatch: Duration | Suite | Tags |
-| --- | --- | --- | :---: | :---: | --- |
+| ID | Name | Hist. Pass % | New Err? | Consec. Fails | Message | :stopwatch: Duration | Suite | Tags |
+| --- | --- | :---: | :---: | :---: | --- | :---: | :---: | --- |
 {%- for test in tests %}
 {{ result_row_full(test) -}}
 {% endfor %}
 {%- endmacro -%}
 {%- macro test_table_compact(title, tests) -%}
 ### {{ title }}
-| ID | Name | Suite |
-| --- | --- | --- |
+| ID | Name | Hist. Pass % | New Err? | Consec. Fails | Suite |
+| --- | --- | :---: | :---: | :---: | --- |
 {%- for test in tests %}
 {{ result_row_compact(test) -}}
 {% endfor %}
@@ -30,33 +38,6 @@
 | {{ passed }} | {{ failed }} | {{ skipped }} | {{ total }} | {{ pass_percentage }} | {{ total_duration }} |
 {% if not is_minimal and speedup_visible -%}
 > :rocket: {{ speedup }} (serial would be {{ serial_duration }})
-{% endif %}
-{% if not is_minimal -%}
-{%- set grouped = failure_groups | selectattr('count', 'ge', 2) | list -%}
-{% if grouped -%}
-### :mag: Root Cause Summary ({{ grouped|length }} distinct {{ 'issue' if grouped|length == 1 else 'issues' }})
-{% if is_full -%}
-{% for group in grouped -%}
-<details>
-<summary>:x: **{{ group.count }}** — `{{ group.failing_keyword }}`: {{ group.message_signature }}</summary>
-
-| ID | Name | Suite |
-| --- | --- | --- |
-{%- for test in group.tests %}
-| {{ test.test_id }} | {{ test.name }} | `{{ test.suite }}` |
-{%- endfor %}
-
-</details>
-
-{% endfor -%}
-{%- else -%}
-| :x: Count | Failing Keyword | Signature |
-| --- | --- | --- |
-{%- for group in grouped %}
-| **{{ group.count }}** | `{{ group.failing_keyword }}` | {{ group.message_signature }} |
-{%- endfor %}
-{% endif -%}
-{% endif -%}
 {% endif %}
 {% if not is_minimal -%}
 {% if failed_tests_on_top -%}
