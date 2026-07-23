@@ -1,0 +1,33 @@
+- timestamp: '2026-07-23 15:24:12'
+  passed: 161
+  failed: 16
+  skipped: 0
+  total: 177
+  pass_percentage: '90.96'
+  total_duration: 19m23.421s
+  test_tags: ''
+  run_parallel: false
+  thread_count: 0
+  test_path: ''
+- timestamp: '2026-07-23 15:24:49'
+  passed: 161
+  failed: 16
+  skipped: 0
+  total: 177
+  pass_percentage: '90.96'
+  total_duration: 19m23.421s
+  test_tags: ''
+  run_parallel: false
+  thread_count: 0
+  test_path: ''
+- timestamp: '2026-07-23 15:24:55'
+  passed: 161
+  failed: 16
+  skipped: 0
+  total: 177
+  pass_percentage: '90.96'
+  total_duration: 19m23.421s
+  test_tags: ''
+  run_parallel: false
+  thread_count: 0
+  test_path: ''

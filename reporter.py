@@ -29,6 +29,7 @@ class Args:
     failed_tests_on_top: str
     report_type: str
     history_path: str
+    track_path: str
     test_tags: str
     run_parallel: str
     thread_count: str
@@ -73,7 +74,6 @@ class HistoryRecord:
     run_parallel: bool
     thread_count: int
     test_path: str
-    tests: list[dict[str, str]] = field(default_factory=list[dict[str, str]])
 
 
 @dataclass
@@ -118,6 +118,11 @@ def parse_args(argv: list[str] | None = None) -> Args:
         help="YAML file to append test result history (default: $HISTORY_PATH)",
     )
     _ = parser.add_argument(
+        "--track_path",
+        default=os.environ.get("TRACK_PATH", ""),
+        help="YAML file for per-test aggregate stats, updated in place (default: $TRACK_PATH)",
+    )
+    _ = parser.add_argument(
         "--test_tags",
         default=os.environ.get("TEST_TAGS", ""),
         help="GitHub workflow input: test tags filter (default: $TEST_TAGS)",
@@ -144,6 +149,7 @@ def parse_args(argv: list[str] | None = None) -> Args:
         failed_tests_on_top=cast(str, raw.failed_tests_on_top),
         report_type=cast(str, raw.report_type),
         history_path=cast(str, raw.history_path),
+        track_path=cast(str, raw.track_path),
         test_tags=cast(str, raw.test_tags),
         run_parallel=cast(str, raw.run_parallel),
         thread_count=cast(str, raw.thread_count),
@@ -322,56 +328,6 @@ def message_cell(value: str) -> Markup:
     return Markup(f"<details><summary>show</summary>{html.escape(value)}</details>")
 
 
-def load_history(history_path: str) -> list[dict[str, object]]:
-    if not history_path or not os.path.isfile(history_path):
-        return []
-    try:
-        with open(history_path, encoding="utf-8") as f:
-            loaded: object = yaml.safe_load(f)
-        if isinstance(loaded, list):
-            return loaded  # type: ignore[return-value]
-    except yaml.YAMLError:
-        log.warning("Failed to parse %s, starting fresh", history_path)
-    return []
-
-
-def compute_test_history(
-    history_entries: list[dict[str, object]],
-) -> dict[str, TestHistoryResult]:
-    stats: dict[str, dict[str, int]] = {}
-    for entry in history_entries:
-        tests_raw = entry.get("tests")
-        if not isinstance(tests_raw, list):
-            continue
-        for test_entry in cast(list[object], tests_raw):
-            if not isinstance(test_entry, dict):
-                continue
-            entry_dict = cast(dict[str, object], test_entry)
-            test_id = str(entry_dict.get("test_id", ""))
-            status = str(entry_dict.get("status", ""))
-            if not test_id:
-                continue
-            if test_id not in stats:
-                stats[test_id] = {"pass": 0, "fail": 0, "consec_fails": 0}
-            if status == "PASS":
-                stats[test_id]["pass"] += 1
-                stats[test_id]["consec_fails"] = 0
-            elif status == "FAIL":
-                stats[test_id]["fail"] += 1
-                stats[test_id]["consec_fails"] += 1
-
-    result: dict[str, TestHistoryResult] = {}
-    for test_id, counts in stats.items():
-        total = counts["pass"] + counts["fail"]
-        pct = f"{(counts['pass'] / total * 100):.0f}%" if total > 0 else "—"
-        result[test_id] = TestHistoryResult(
-            pass_pct=pct,
-            is_new_error=counts["fail"] == 0,
-            consec_fails=counts["consec_fails"],
-        )
-    return result
-
-
 def write_history(report: Report, args: Args) -> None:
     if not args.history_path:
         return
@@ -391,11 +347,6 @@ def write_history(report: Report, args: Args) -> None:
     except (ValueError, TypeError):
         thread_count = 0
 
-    per_test: list[dict[str, str]] = []
-    for test_list in (report.passed_tests, report.failed_tests):
-        for test in test_list:
-            per_test.append({"test_id": test.test_id, "status": test.status})
-
     record = HistoryRecord(
         timestamp=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         passed=report.passed,
@@ -408,7 +359,6 @@ def write_history(report: Report, args: Args) -> None:
         run_parallel=args.run_parallel == "true",
         thread_count=thread_count,
         test_path=args.test_path,
-        tests=per_test,
     )
     history.append(asdict(record))
 
@@ -416,6 +366,57 @@ def write_history(report: Report, args: Args) -> None:
         yaml.safe_dump(history, f, allow_unicode=True, sort_keys=False)
 
     log.info("Appended history record to %s", args.history_path)
+
+
+def load_tracker(track_path: str) -> dict[str, dict[str, int]]:
+    if not track_path or not os.path.isfile(track_path):
+        return {}
+    try:
+        with open(track_path, encoding="utf-8") as f:
+            loaded: object = yaml.safe_load(f)
+        if isinstance(loaded, dict):
+            return cast(dict[str, dict[str, int]], loaded)
+    except yaml.YAMLError:
+        log.warning("Failed to parse %s, starting fresh", track_path)
+    return {}
+
+
+def update_tracker(
+    tracker: dict[str, dict[str, int]], report: Report
+) -> dict[str, dict[str, int]]:
+    for test_list in (report.passed_tests, report.failed_tests):
+        for test in test_list:
+            if not test.test_id:
+                continue
+            if test.test_id not in tracker:
+                tracker[test.test_id] = {"passes": 0, "fails": 0, "consec_fails": 0}
+            if test.status == "PASS":
+                tracker[test.test_id]["passes"] += 1
+                tracker[test.test_id]["consec_fails"] = 0
+            elif test.status == "FAIL":
+                tracker[test.test_id]["fails"] += 1
+                tracker[test.test_id]["consec_fails"] += 1
+    return tracker
+
+
+def save_tracker(track_path: str, tracker: dict[str, dict[str, int]]) -> None:
+    with open(track_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(tracker, f, allow_unicode=True, sort_keys=False)
+
+
+def build_test_history(
+    tracker: dict[str, dict[str, int]],
+) -> dict[str, TestHistoryResult]:
+    result: dict[str, TestHistoryResult] = {}
+    for test_id, stats in tracker.items():
+        total = stats["passes"] + stats["fails"]
+        pct = f"{(stats['passes'] / total * 100):.0f}%" if total > 0 else "—"
+        result[test_id] = TestHistoryResult(
+            pass_pct=pct,
+            is_new_error=stats["fails"] == 0,
+            consec_fails=stats["consec_fails"],
+        )
+    return result
 
 
 def render_report(
@@ -466,8 +467,16 @@ def main(argv: list[str] | None = None) -> None:
     validate_args(args)
 
     report = parse_output_xml(args.report_path)
-    history_entries = load_history(args.history_path)
-    test_history = compute_test_history(history_entries)
+
+    tracker: dict[str, dict[str, int]] = {}
+    if args.track_path:
+        tracker = load_tracker(args.track_path)
+        test_history = build_test_history(tracker)
+        update_tracker(tracker, report)
+        save_tracker(args.track_path, tracker)
+    else:
+        test_history = {}
+
     write_history(report, args)
     body = render_report(report, args, test_history)
 

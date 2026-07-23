@@ -19,7 +19,8 @@ The report is appended to `GITHUB_STEP_SUMMARY`.
 | `--show_passed_tests` | `SHOW_PASSED_TESTS` | Include passed tests in report (`true` to enable) |
 | `--failed_tests_on_top` | `FAILED_TESTS_ON_TOP` | Show failed tests before passed (`true` to enable) |
 | `--report_type` | `REPORT_TYPE` | Report detail: `full`, `compact`, `minimal` (default: `full`) |
-| `--history_path` | `HISTORY_PATH` | YAML file to persist test history across runs |
+| `--history_path` | `HISTORY_PATH` | YAML file to append run-level stats to |
+| `--track_path` | `TRACK_PATH` | YAML file for per-test aggregate stats, updated in place |
 | `--test_tags` | `TEST_TAGS` | GitHub workflow input: test tags filter applied |
 | `--run_parallel` | `RUN_PARALLEL` | GitHub workflow input: `true` if parallel run |
 | `--thread_count` | `THREAD_COUNT` | GitHub workflow input: parallel thread count |
@@ -27,30 +28,36 @@ The report is appended to `GITHUB_STEP_SUMMARY`.
 
 ### History Tracking
 
-When `--history_path` is set, each run appends a record to the YAML file
-containing the results table (passed, failed, skipped, total, pass %,
-duration) plus per-test outcomes and workflow inputs.
+`--history_path` appends a run-level record each time (passed, failed,
+skipped, total, pass %, duration, workflow inputs).  No per-test data —
+that lives in the tracker file.
 
-On subsequent runs, the report augments each test with:
+`--track_path` maintains a compact per-test tracker file.  Each run
+reads it, produces the report columns, then updates it in place with the
+current run's results.
 
-- **Hist. Pass %** — historical pass rate across all prior runs
-- **New?** — shows `Yes` if the test has never been seen in history
+Report columns (visible when `--track_path` is set):
+
+- **Hist. Pass %** — cumulative pass rate from all prior runs
+- **New Err?** — `Yes` if the test has never failed before
+- **Consec. Fails** — failure streak including the current run
 
 Example workflow step:
 
 ```yaml
-- name: Generate report with history
+- name: Generate report with tracking
   run: |
     robot-reporter \
       --report_path ./test-results \
-      --history_path ./test-history.yml \
+      --history_path ./history.yml \
+      --track_path ./tracker.yml \
       --test_tags "${{ inputs.test_tags }}" \
       --run_parallel "${{ inputs.run_parallel }}" \
       --thread_count "${{ inputs.thread_count }}" \
       --test_path "${{ inputs.test_path }}"
 ```
 
-History YAML format:
+History YAML format (run-level only):
 
 ```yaml
 - timestamp: '2026-07-02 14:30:00'
@@ -64,9 +71,17 @@ History YAML format:
   run_parallel: true
   thread_count: 4
   test_path: Tests
-  tests:
-    - test_id: id-0001
-      status: PASS
-    - test_id: id-0002
-      status: FAIL
+```
+
+Tracker YAML format (per-test aggregates, updated in place):
+
+```yaml
+id-0001:
+  passes: 10
+  fails: 0
+  consec_fails: 0
+id-0002:
+  passes: 2
+  fails: 8
+  consec_fails: 3
 ```

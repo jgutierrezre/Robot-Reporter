@@ -1,7 +1,7 @@
 ## Architecture
 
 ```
-reporter.py          Main script: parses XML, computes history, renders template
+reporter.py          Main script: parses XML, tracks test stats, renders template
 templates/
   report.jinja       Jinja2 template for the GitHub step summary markdown
 grouping.py           Opt-in failure grouping (disabled by default)
@@ -22,6 +22,7 @@ grouping.py           Opt-in failure grouping (disabled by default)
 | `failed_tests_on_top` | `str` | `--failed_tests_on_top` / `$FAILED_TESTS_ON_TOP` |
 | `report_type` | `str` | `--report_type` / `$REPORT_TYPE` (`full`/`compact`/`minimal`) |
 | `history_path` | `str` | `--history_path` / `$HISTORY_PATH` |
+| `track_path` | `str` | `--track_path` / `$TRACK_PATH` |
 | `test_tags` | `str` | `--test_tags` / `$TEST_TAGS` |
 | `run_parallel` | `str` | `--run_parallel` / `$RUN_PARALLEL` (`"true"` or `""`) |
 | `thread_count` | `str` | `--thread_count` / `$THREAD_COUNT` |
@@ -60,7 +61,7 @@ All fields are raw strings; `run_parallel` and `thread_count` are coerced to
 
 ---
 
-**`HistoryRecord`** — One run's worth of data written to the history YAML.
+**`HistoryRecord`** — One run's run-level summary written to the history YAML.
 
 | Field | Type |
 |---|---|
@@ -72,19 +73,19 @@ All fields are raw strings; `run_parallel` and `thread_count` are coerced to
 | `run_parallel` | `bool` |
 | `thread_count` | `int` |
 | `test_path` | `str` |
-| `tests` | `list[dict[str,str]]` — the per-test `{test_id, status}` pairs |
 
-Serialized to YAML via `asdict()`.
+Serialized to YAML via `asdict()`.  No per-test data — that lives in the
+tracker file.
 
 ---
 
-**`TestHistoryResult`** — Per-test summary derived from all prior history runs.
+**`TestHistoryResult`** — Per-test stats derived from the tracker file.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `pass_pct` | `str` | `"100%"`, `"0%"`, or `"—"` (no history) |
+| `pass_pct` | `str` | `"100%"`, `"0%"`, or `"—"` (not in tracker) |
 | `is_new_error` | `bool` | `True` when this test has **never failed** in any prior run |
-| `consec_fails` | `int` | consecutive failures at the tail of the history (resets on `PASS`) |
+| `consec_fails` | `int` | consecutive failures at the tail of the tracker (resets on `PASS`) |
 
 ---
 
@@ -94,9 +95,8 @@ Serialized to YAML via `asdict()`.
 
 #### `parse_args(argv: list[str] | None = None) -> Args`
 
-Builds an `argparse.ArgumentParser` with 9 flags.  Each flag's `default` is
-read from a matching environment variable (e.g. `--report_path` reads
-`$REPORT_PATH`).  Returns a populated `Args` dataclass.
+Builds an `argparse.ArgumentParser` with 10 flags.  Each flag's `default` is
+read from a matching environment variable.  Returns a populated `Args` dataclass.
 
 ---
 
@@ -149,30 +149,44 @@ element for the full report table.
 
 ---
 
-#### `load_history(history_path: str) -> list[dict[str, object]]`
+#### `load_tracker(track_path: str) -> dict[str, dict[str, int]]`
 
-Reads the YAML file at `history_path` (if it exists and is valid).  Returns a
-list of run records, or `[]` if missing / unparseable.  Each record is a dict
-matching `HistoryRecord` shape.
+Reads the tracker YAML file.  Returns `{test_id: {passes, fails, consec_fails}}`
+or `{}` if the file is missing or unparseable.
 
 ---
 
-#### `compute_test_history(history_entries: list[dict[str, object]]) -> dict[str, TestHistoryResult]`
+#### `update_tracker(tracker, report) -> dict[str, dict[str, int]]`
 
-Walks history records **in chronological order** (they are appended this way).
-For each `test_id`:
-- `pass` / `fail`: cumulative counts.
-- `consec_fails`: increments on `FAIL`, resets to `0` on `PASS`.
+Mutates the tracker dict in place with the current run's results:
 
-From the final tallies:
-- `pass_pct` → `"85%"` or `"—"` if never seen.
-- `is_new_error` → `True` when `fail == 0` (error never occurred before).
-- `consec_fails` → as computed.
+- For each test in `report.passed_tests` and `report.failed_tests`:
+  - Increments `passes` or `fails`.
+  - On `PASS`: resets `consec_fails` to 0.
+  - On `FAIL`: increments `consec_fails`.
+- New test IDs are initialized with `{passes: 0, fails: 0, consec_fails: 0}`.
 
-Returns a dict keyed by `test_id`.
+Returns the same dict for convenience.
 
-The template adds `+1` to `consec_fails` for tests that are **currently failing**
-to include the current run in the streak.
+---
+
+#### `save_tracker(track_path, tracker) -> None`
+
+Writes the tracker dict to the YAML file at `track_path`.
+
+---
+
+#### `build_test_history(tracker) -> dict[str, TestHistoryResult]`
+
+Converts the raw tracker dict into a `test_id → TestHistoryResult` lookup
+for the template:
+
+- `pass_pct` from `passes / (passes + fails)`.
+- `is_new_error` → `True` when `fails == 0`.
+- `consec_fails` → as stored in the tracker.
+
+The template adds `+1` to `consec_fails` for tests currently failing
+(since the tracker reflects the state *before* this run was applied).
 
 ---
 
@@ -180,12 +194,10 @@ to include the current run in the streak.
 
 No-op when `args.history_path` is empty.
 
-1. Loads the existing history YAML (starts fresh on parse error).
-2. Collects per-test `{test_id, status}` pairs from every test in the current
-   `Report`.
-3. Builds a `HistoryRecord` from `Report` + `Args` + per-test data.
-4. Converts to dict via `asdict()` and appends to the list.
-5. Writes the full list back to the YAML file.
+1. Loads the existing history YAML (a list of run records).
+2. Builds a `HistoryRecord` from `Report` + `Args` (run-level only, no per-test data).
+3. Converts to dict via `asdict()` and appends to the list.
+4. Writes the full list back to the YAML file.
 
 ---
 
@@ -197,7 +209,7 @@ No-op when `args.history_path` is empty.
 3. Loads `report.jinja` and renders it with the full context:
    - Aggregate counts, durations, speedup.
    - `passed_tests` / `failed_tests` lists.
-   - `test_history` dict for per-test historical columns.
+   - `test_history` dict for the historical columns.
    - Boolean flags from `args`.
    - `report_type`.
 
@@ -216,12 +228,19 @@ Pipeline:
 
 ```
 parse_args → validate_args → parse_output_xml
-    → load_history → compute_test_history
-    → write_history → render_report → write_summary
+
+If --track_path is set:
+    load_tracker → build_test_history → update_tracker → save_tracker
+
+write_history → render_report → write_summary
 ```
 
-History is computed **before** the current run is written, so the current run's
-tests do not self-reference.
+Tracker is read and used **before** being updated, so the report columns
+reflect the state before the current run was applied.  The `consec_fails`
+column adds `+1` in the template for currently failing tests.
+
+When `--track_path` is not set, `test_history` is `{}` and all historical
+columns show `—`.
 
 ---
 
